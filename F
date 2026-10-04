@@ -2,31 +2,29 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local lp = Players.LocalPlayer
-
+local cam = workspace.CurrentCamera
 -- ========== 配置参数 ==========
 local segmentsPerSec = 1000 -- 默认初始值，范围0~1000
 local stepDistance = 5 -- 默认瞬移距离
-local verticalStep = 1.6
+local verticalStep = 6   -- 上下移动步幅（现在界面可改）
+local verticalRate = 1/100 -- 上下刷新间隔
 local maxFallY = -0.15
 local enableWalkTP = true
 local enableSlowFall = false
 local lastWalkTP = 0
-local verticalRate = 1 / 50 -- 上下固定50次/秒
+local dashForwardDist = 20 -- 点按钮向前瞬移20米
 -- ==============================
-
 local sg = Instance.new("ScreenGui")
 sg.Name = "MovementGui"
 sg.ResetOnSpawn = false
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = lp.PlayerGui
-
 -- 通用样式函数：白底黑字
 local function styleWhiteBlack(btn)
 	btn.BackgroundColor3 = Color3.new(1, 1, 1)
 	btn.TextColor3 = Color3.new(0, 0, 0)
 	btn.AutoLocalize = false
 end
-
 -- 左上角控制按钮
 local settingBtn = Instance.new("TextButton")
 settingBtn.Size = UDim2.new(0, 80, 0, 30)
@@ -34,20 +32,27 @@ settingBtn.Position = UDim2.new(0, 10, 0, 10)
 settingBtn.Text = "调节速度"
 settingBtn.Parent = sg
 styleWhiteBlack(settingBtn)
-
 local toggleWalkBtn = Instance.new("TextButton")
 toggleWalkBtn.Size = UDim2.new(0, 80, 0, 30)
 toggleWalkBtn.Position = UDim2.new(0, 95, 0, 10)
 toggleWalkBtn.Text = "瞬移:开"
 toggleWalkBtn.Parent = sg
 styleWhiteBlack(toggleWalkBtn)
-
 local toggleSlowFallBtn = Instance.new("TextButton")
 toggleSlowFallBtn.Size = UDim2.new(0, 80, 0, 30)
 toggleSlowFallBtn.Position = UDim2.new(0, 180, 0, 10)
 toggleSlowFallBtn.Text = "慢落:关"
 toggleSlowFallBtn.Parent = sg
 styleWhiteBlack(toggleSlowFallBtn)
+
+-- 冲刺按钮 在上下按钮左边
+local btnDash = Instance.new("TextButton")
+btnDash.Size = UDim2.new(0, 50, 0, 85)
+btnDash.Position = UDim2.new(1, -220, 1, -100)
+btnDash.Text = "冲刺\n20m"
+btnDash.TextScaled = true
+btnDash.Parent = sg
+styleWhiteBlack(btnDash)
 
 -- 上下箭头按钮
 local btnUp = Instance.new("TextButton")
@@ -57,7 +62,6 @@ btnUp.Text = "↑"
 btnUp.TextScaled = true
 btnUp.Parent = sg
 styleWhiteBlack(btnUp)
-
 local btnDown = Instance.new("TextButton")
 btnDown.Size = UDim2.new(0, 50, 0, 40)
 btnDown.Position = UDim2.new(1, -160, 1, -55)
@@ -66,17 +70,17 @@ btnDown.TextScaled = true
 btnDown.Parent = sg
 styleWhiteBlack(btnDown)
 
--- 调节面板（加大高度，新增瞬移距离输入框）
+-- 调节面板【加大高度，新增：上下速度输入框】
 local panel = Instance.new("Frame")
-panel.Size = UDim2.new(0, 240, 0, 160)
+panel.Size = UDim2.new(0, 240, 0, 200)
 panel.Position = UDim2.new(0, 10, 0, 45)
 panel.BackgroundColor3 = Color3.new(1, 1, 1)
 panel.Visible = false
 panel.Parent = sg
 
 local tipLabel1 = Instance.new("TextLabel")
-tipLabel1.Size = UDim2.new(1, -20, 0, 25)
-tipLabel1.Position = UDim2.new(0, 10, 0, 8)
+tipLabel1.Size = UDim2.new(1, -20, 0, 22)
+tipLabel1.Position = UDim2.new(0, 10, 0, 6)
 tipLabel1.BackgroundTransparency = 1
 tipLabel1.TextColor3 = Color3.new(0, 0, 0)
 tipLabel1.Text = "每秒瞬移次数 (0~1000)"
@@ -84,8 +88,8 @@ tipLabel1.TextWrapped = true
 tipLabel1.Parent = panel
 
 local textBoxSpeed = Instance.new("TextBox")
-textBoxSpeed.Size = UDim2.new(1, -20, 0, 32)
-textBoxSpeed.Position = UDim2.new(0, 10, 0, 33)
+textBoxSpeed.Size = UDim2.new(1, -20, 0, 30)
+textBoxSpeed.Position = UDim2.new(0, 10, 0, 28)
 textBoxSpeed.BackgroundColor3 = Color3.new(1, 1, 1)
 textBoxSpeed.TextColor3 = Color3.new(0, 0, 0)
 textBoxSpeed.Text = tostring(segmentsPerSec)
@@ -93,8 +97,8 @@ textBoxSpeed.ClearTextOnFocus = false
 textBoxSpeed.Parent = panel
 
 local tipLabel2 = Instance.new("TextLabel")
-tipLabel2.Size = UDim2.new(1, -20, 0, 25)
-tipLabel2.Position = UDim2.new(0, 10, 0, 72)
+tipLabel2.Size = UDim2.new(1, -20, 0, 22)
+tipLabel2.Position = UDim2.new(0, 10, 0, 62)
 tipLabel2.BackgroundTransparency = 1
 tipLabel2.TextColor3 = Color3.new(0, 0, 0)
 tipLabel2.Text = "瞬移距离（米）"
@@ -102,13 +106,32 @@ tipLabel2.TextWrapped = true
 tipLabel2.Parent = panel
 
 local textBoxDist = Instance.new("TextBox")
-textBoxDist.Size = UDim2.new(1, -20, 0, 32)
-textBoxDist.Position = UDim2.new(0, 10, 0, 97)
+textBoxDist.Size = UDim2.new(1, -20, 0, 30)
+textBoxDist.Position = UDim2.new(0, 10, 0, 84)
 textBoxDist.BackgroundColor3 = Color3.new(1, 1, 1)
 textBoxDist.TextColor3 = Color3.new(0, 0, 0)
 textBoxDist.Text = tostring(stepDistance)
 textBoxDist.ClearTextOnFocus = false
 textBoxDist.Parent = panel
+
+--=====新增：上下速度输入框=====
+local tipLabel3 = Instance.new("TextLabel")
+tipLabel3.Size = UDim2.new(1, -20, 0, 22)
+tipLabel3.Position = UDim2.new(0, 10, 0, 118)
+tipLabel3.BackgroundTransparency = 1
+tipLabel3.TextColor3 = Color3.new(0, 0, 0)
+tipLabel3.Text = "上下移动速度"
+tipLabel3.TextWrapped = true
+tipLabel3.Parent = panel
+
+local textBoxVertical = Instance.new("TextBox")
+textBoxVertical.Size = UDim2.new(1, -20, 0, 30)
+textBoxVertical.Position = UDim2.new(0, 10, 0, 140)
+textBoxVertical.BackgroundColor3 = Color3.new(1, 1, 1)
+textBoxVertical.TextColor3 = Color3.new(0, 0, 0)
+textBoxVertical.Text = tostring(verticalStep)
+textBoxVertical.ClearTextOnFocus = false
+textBoxVertical.Parent = panel
 
 local holdUp = false
 local holdDown = false
@@ -117,7 +140,6 @@ settingBtn.MouseButton1Click:Connect(function()
 	panel.Visible = not panel.Visible
 end)
 
--- 每秒瞬移次数
 textBoxSpeed.FocusLost:Connect(function()
 	local num = tonumber(textBoxSpeed.Text)
 	if num then
@@ -127,13 +149,32 @@ textBoxSpeed.FocusLost:Connect(function()
 	textBoxSpeed.Text = tostring(segmentsPerSec)
 end)
 
--- 瞬移距离
 textBoxDist.FocusLost:Connect(function()
 	local num = tonumber(textBoxDist.Text)
 	if num and num >= 0 then
 		stepDistance = num
 	end
 	textBoxDist.Text = tostring(stepDistance)
+end)
+
+--【新增：修改上下速度】
+textBoxVertical.FocusLost:Connect(function()
+	local num = tonumber(textBoxVertical.Text)
+	if num and num>0 then
+		verticalStep = num
+	end
+	textBoxVertical.Text = tostring(verticalStep)
+end)
+
+-- 冲刺：点一下向镜头水平正前方瞬移20米
+btnDash.MouseButton1Click:Connect(function()
+	local character = lp.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	local look = cam.CFrame.LookVector
+	look = Vector3.new(look.X,0,look.Z).Unit
+	character:PivotTo(character:GetPivot() + look * dashForwardDist)
 end)
 
 toggleWalkBtn.MouseButton1Click:Connect(function()
@@ -144,7 +185,6 @@ toggleWalkBtn.MouseButton1Click:Connect(function()
 		toggleWalkBtn.Text = "瞬移:关"
 	end
 end)
-
 toggleSlowFallBtn.MouseButton1Click:Connect(function()
 	enableSlowFall = not enableSlowFall
 	if enableSlowFall then
@@ -153,11 +193,9 @@ toggleSlowFallBtn.MouseButton1Click:Connect(function()
 		toggleSlowFallBtn.Text = "慢落:关"
 	end
 end)
-
 btnUp.MouseButton1Down:Connect(function() holdUp = true end)
 btnUp.MouseButton1Up:Connect(function() holdUp = false end)
 btnUp.MouseLeave:Connect(function() holdUp = false end)
-
 btnDown.MouseButton1Down:Connect(function() holdDown = true end)
 btnDown.MouseButton1Up:Connect(function() holdDown = false end)
 btnDown.MouseLeave:Connect(function() holdDown = false end)
@@ -169,7 +207,6 @@ local function refreshCharacter(newChar)
 	hum = char:WaitForChild("Humanoid")
 	hrp = char:WaitForChild("HumanoidRootPart")
 end
-
 lp.CharacterAdded:Connect(refreshCharacter)
 if lp.Character then
 	task.spawn(refreshCharacter, lp.Character)
@@ -182,29 +219,34 @@ end)
 
 RunService.Heartbeat:Connect(function()
 	if not hum or not hrp then return end
+
+	-- noclip穿墙
+	if char then
+		for _,part in char:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.CanCollide = not enableWalkTP
+			end
+		end
+	end
+
 	local now = os.clock()
 	local walkInterval = 1 / segmentsPerSec
-
-	-- 走路高频瞬移：移动时也能叠加上下（原本的角色移动方向逻辑）
 	if enableWalkTP then
 		if hum.MoveDirection.Magnitude > 0.01 then
 			if now - lastWalkTP >= walkInterval then
 				lastWalkTP = now
 				local moveDir = hum.MoveDirection
 				moveDir = Vector3.new(moveDir.X, 0, moveDir.Z).Unit
-
 				local targetPos = char:GetPivot() + moveDir * stepDistance
-
 				if holdUp then
 					targetPos += Vector3.new(0, verticalStep, 0)
 				elseif holdDown then
 					targetPos += Vector3.new(0, -verticalStep, 0)
 				end
-
 				char:PivotTo(targetPos)
 			end
 		else
-			-- 原地长按上下
+			--原地上下
 			if (holdUp or holdDown) and now - lastWalkTP >= verticalRate then
 				lastWalkTP = now
 				if holdUp then
@@ -215,7 +257,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	else
-		-- 走路瞬移关闭，只保留上下
 		if (holdUp or holdDown) and now - lastWalkTP >= verticalRate then
 			lastWalkTP = now
 			if holdUp then
@@ -225,7 +266,6 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-
 	if enableSlowFall then
 		if hum:GetState() == Enum.HumanoidStateType.Freefall then
 			local vel = hrp.AssemblyLinearVelocity
